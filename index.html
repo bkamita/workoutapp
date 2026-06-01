@@ -173,6 +173,69 @@
     text-transform: uppercase;
   }
   
+  /* ============ BACKUP REMINDER BANNER ============ */
+  .backup-banner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 14px 16px 16px;
+    margin-bottom: 24px;
+    margin-top: 20px;
+    animation: slideup 0.3s ease-out;
+  }
+  .backup-banner-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .backup-banner-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .backup-banner-dismiss {
+    background: transparent;
+    color: var(--text-faint);
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 8px;
+    border: none;
+    cursor: pointer;
+  }
+  .backup-banner-dismiss:active { color: var(--text-dim); }
+  .backup-banner-text {
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin-bottom: 12px;
+  }
+  .backup-banner-text strong {
+    color: var(--text);
+    font-weight: 700;
+  }
+  .backup-banner-action {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--accent-deep);
+    color: var(--accent);
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .backup-banner-action:active {
+    background: var(--accent-glow);
+  }
+  
   /* Continue card — the big "widget" */
   .continue-card {
     background: linear-gradient(140deg, var(--surface-2), var(--surface));
@@ -670,6 +733,26 @@
   }
   .exercise-block.collapsed:hover { opacity: 1; }
   
+  /* Brief gold celebration when an exercise just hit complete — shown before auto-collapse */
+  @keyframes celebrateIn {
+    0%   { background: var(--surface); box-shadow: 0 0 0 rgba(245, 182, 108, 0); transform: scale(1); }
+    20%  { background: rgba(245, 182, 108, 0.16); box-shadow: 0 0 32px rgba(245, 182, 108, 0.28); transform: scale(1.015); }
+    100% { background: rgba(245, 182, 108, 0.10); box-shadow: 0 0 24px rgba(245, 182, 108, 0.18); transform: scale(1); }
+  }
+  .exercise-block.celebrating {
+    border-color: var(--accent);
+    border-left: 3px solid var(--accent);
+    animation: celebrateIn 0.5s ease-out forwards;
+  }
+  .exercise-block.celebrating .exercise-block-title,
+  .exercise-block.celebrating .exercise-block-target {
+    color: var(--text);
+  }
+  /* While celebrating, the "all sets done" target progress goes bright */
+  .exercise-block.celebrating .set-progress {
+    color: var(--accent-bright, var(--accent));
+  }
+  
   /* Collapsed exercise: single-line summary */
   .exercise-block-collapsed {
     width: 100%;
@@ -734,7 +817,7 @@
     color: var(--accent);
     font-weight: 700;
   }
-  .exercise-block.status-complete:not(.collapsed) .set-progress {
+  .exercise-block.ex-complete:not(.collapsed) .set-progress {
     color: var(--accent);
   }
   
@@ -830,10 +913,10 @@
   .exercise-block-target {
     font-family: var(--mono);
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--text-soft);
     letter-spacing: 0.04em;
     margin-top: 3px;
-    font-weight: 400;
+    font-weight: 500;
   }
   .exercise-actions { display: flex; gap: 4px; }
   .exercise-action-btn {
@@ -910,7 +993,8 @@
   .set-input.done { 
     border-color: var(--accent-deep); 
     background: rgba(245, 182, 108, 0.06);
-    color: var(--accent-bright);
+    color: var(--text);
+    font-weight: 600;
   }
   .set-input.ghost {
     color: var(--text-faint);
@@ -1694,6 +1778,19 @@
     color: var(--text);
     margin-bottom: 8px;
   }
+  .past-rank {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    margin-right: 8px;
+    vertical-align: 2px;
+  }
   .past-sets-list {
     display: flex;
     flex-wrap: wrap;
@@ -2030,6 +2127,15 @@ const snapshotOverrides = (log, day) => {
 };
 
 // ============ STREAK + STATS ============
+// Count total completed workouts across all programs in state
+const countCompletedWorkouts = (state) => {
+  let n = 0;
+  (state?.programs || []).forEach(p => {
+    Object.values(p.sessions || {}).forEach(s => { if (s?.completedAt) n++; });
+  });
+  return n;
+};
+
 const computeGlobalStats = (state) => {
   let totalCompleted = 0;
   const completedDates = [];
@@ -2376,6 +2482,18 @@ function App() {
   
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 1800); };
   
+  // Mark current state as backed up — call after a successful JSON export
+  const markBackedUp = () => {
+    const totalCompleted = countCompletedWorkouts(state);
+    setState(s => ({ ...s, lastBackupAt: new Date().toISOString(), lastBackupWorkoutCount: totalCompleted }));
+  };
+  
+  // Run an export and mark as backed up in one step
+  const doExportAndMark = () => {
+    exportJSON(state);
+    markBackedUp();
+  };
+  
   const updateProgram = (id, updater) => {
     setState(s => ({ ...s, programs: s.programs.map(p => p.id === id ? updater(p) : p) }));
   };
@@ -2391,13 +2509,11 @@ function App() {
     }));
   };
   
-  const onWorkoutComplete = (program, summary) => {
-    try {
-      const payload = { version: 1, exportedAt: new Date().toISOString(), data: state };
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-      downloadFile(`lifter-autobackup-${stamp}.json`, JSON.stringify(payload));
-    } catch {}
-  };
+  // Note: we used to try auto-downloading a JSON here, but iOS Safari silently blocks
+  // programmatic downloads in home-screen-installed PWA mode. The home screen now shows
+  // a "backup reminder" banner that lets the user tap to export, which fires the download
+  // via a real user gesture and works reliably.
+  const onWorkoutComplete = (program, summary) => {};
   
   let content;
   if (view.name === 'home') {
@@ -2417,13 +2533,19 @@ function App() {
       }}
       onSetGymMode={(programId, mode) => updateProgram(programId, p => ({ ...p, gymMode: mode }))}
       onOpenSettings={() => setView({ name: 'settings' })}
+      onBackupNow={() => { doExportAndMark(); showToast('BACKED UP'); }}
+      onDismissBackupReminder={() => {
+        // Snooze: mark current count as the "last seen" so the reminder won't reappear until threshold more
+        const totalCompleted = countCompletedWorkouts(state);
+        setState(s => ({ ...s, backupReminderSnoozedAt: totalCompleted }));
+      }}
     />;
   } else if (view.name === 'settings') {
     content = <Settings
       state={state}
       onBack={() => setView({ name: 'home' })}
       onImport={(newState) => { setState(newState); showToast('IMPORTED'); setView({ name: 'home' }); }}
-      onExportJSON={() => { exportJSON(state); showToast('JSON EXPORTED'); }}
+      onExportJSON={() => { doExportAndMark(); showToast('JSON EXPORTED'); }}
       onExportCSV={() => { exportCSV(state); showToast('CSV EXPORTED'); }}
       onResetAll={() => {
         if (confirm('Delete ALL programs and data? This cannot be undone.')) {
@@ -2581,8 +2703,23 @@ function App() {
 }
 
 // ============ HOME (HYBRID: continue card + program list) ============
-function Home({ state, onNewProgram, onLoadDefault, onOpenProgram, onOpenSession, onSetGymMode, onOpenSettings }) {
+function Home({ state, onNewProgram, onLoadDefault, onOpenProgram, onOpenSession, onSetGymMode, onOpenSettings, onBackupNow, onDismissBackupReminder }) {
   const stats = useMemo(() => computeGlobalStats(state), [state]);
+  
+  // Backup reminder: show if enough workouts have been logged since last backup or snooze.
+  // Threshold: 3 workouts since last backup, OR 3 workouts since last dismiss/snooze.
+  const BACKUP_THRESHOLD = 3;
+  const backupReminder = useMemo(() => {
+    const totalCompleted = countCompletedWorkouts(state);
+    if (totalCompleted === 0) return null;
+    const lastBackupCount = state.lastBackupWorkoutCount || 0;
+    const snoozedAt = state.backupReminderSnoozedAt || 0;
+    // workouts done since the more recent of: last backup, last snooze
+    const baseline = Math.max(lastBackupCount, snoozedAt);
+    const unbacked = totalCompleted - baseline;
+    if (unbacked < BACKUP_THRESHOLD) return null;
+    return { unbacked, totalCompleted, hasEverBackedUp: !!state.lastBackupAt };
+  }, [state]);
   
   // Find the "active" program: the one with activeProgramId, or the most recently created
   const activeProgram = useMemo(() => {
@@ -2660,6 +2797,23 @@ function Home({ state, onNewProgram, onLoadDefault, onOpenProgram, onOpenSession
                 <div className="stat-label">Weeks</div>
               </div>
             </div>
+            
+            {/* Backup reminder — appears every N workouts */}
+            {backupReminder && (
+              <div className="backup-banner">
+                <div className="backup-banner-row">
+                  <div className="backup-banner-eyebrow">↓ Backup</div>
+                  <button className="backup-banner-dismiss" onClick={onDismissBackupReminder} aria-label="Dismiss">×</button>
+                </div>
+                <div className="backup-banner-text">
+                  <strong>{backupReminder.unbacked}</strong> workouts logged since {backupReminder.hasEverBackedUp ? 'last backup' : 'install'}.
+                  Save a copy in case your device data is lost.
+                </div>
+                <button className="backup-banner-action" onClick={onBackupNow}>
+                  Export Backup
+                </button>
+              </div>
+            )}
             
             {/* CONTINUE CARD — the hero */}
             {activeProgram && nextSession && (
@@ -2804,9 +2958,9 @@ function Settings({ state, onBack, onImport, onExportJSON, onExportCSV, onResetA
         </div>
         
         <div className="form-group">
-          <div className="form-label">Auto-Backup</div>
+          <div className="form-label">Backup Reminders</div>
           <div className="text-faint mono" style={{ fontSize: 11, letterSpacing: '0.05em', lineHeight: 1.6 }}>
-            A JSON file is downloaded automatically when you complete a workout. On iPhone, these save to your Files app under Downloads.
+            A reminder appears on the home screen every few workouts prompting you to export. Tapping Export JSON above also marks your data as backed up and resets the reminder.
           </div>
         </div>
         
@@ -3137,6 +3291,9 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
   // Manual expand overrides for completed exercises. Keyed by exercise index.
   // If an exercise's index is in this set, it overrides auto-collapse (forces expanded).
   const [manuallyExpanded, setManuallyExpanded] = useState(() => new Set());
+  // Exercises currently showing the gold completion celebration. Pulled out ~1.6s after
+  // they transition to complete, at which point auto-collapse kicks in. Keyed by exIdx.
+  const [celebrating, setCelebrating] = useState(() => new Set());
   // Refs for scroll-into-view from the jump bar
   const exerciseRefs = useRef({});
   // Kebab menu and child modals
@@ -3208,9 +3365,29 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
     return out;
   }, [log]);
   
+  // upNextIdx = first UNTOUCHED exercise (top-down). Once you start logging an exercise,
+  // the up-next highlight moves to the next untouched one — your current exercise
+  // shouldn't keep glowing as "next" while you're working on it.
   const upNextIdx = useMemo(() => {
-    return exerciseStatuses.findIndex(s => s.status !== 'complete');
+    return exerciseStatuses.findIndex(s => s.status === 'untouched');
   }, [exerciseStatuses]);
+  
+  // Jump bar order: completed exercises FIRST (in the order they were completed),
+  // then incomplete (partial + untouched) in program order. This lets the user scan
+  // the front of the bar to see what they've already done, and the back for what's left.
+  const jumpBarOrder = useMemo(() => {
+    const completed = [];
+    const incomplete = [];
+    log.forEach((ex, i) => {
+      if (ex.completedAt) {
+        completed.push({ exIdx: i, completedAt: ex.completedAt });
+      } else {
+        incomplete.push(i);
+      }
+    });
+    completed.sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+    return [...completed.map(c => c.exIdx), ...incomplete];
+  }, [log]);
   
   const isExpanded = (exIdx) => {
     const s = exerciseStatuses[exIdx];
@@ -3255,13 +3432,49 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
         valuePatch.reps = prevSet.reps;
       }
     }
-    updateSet(exIdx, setIdx, valuePatch);
+    
+    // Precompute completion transition synchronously from the current log so we can
+    // schedule the celebration without depending on setLog updater timing.
+    const ex = log[exIdx];
+    const willBeAllDone = willBeDone && ex.sets.every((s, j) => j === setIdx ? true : s.done);
+    const wasAllDone = ex.sets.every(s => s.done);
+    const justBecameComplete = willBeAllDone && !wasAllDone;
+    const justBecameIncomplete = !willBeAllDone && wasAllDone;
+    
+    // Apply log update including completedAt bookkeeping for completion-order tracking
+    setLog(prevLog => prevLog.map((e, i) => {
+      if (i !== exIdx) return e;
+      const newSets = e.sets.map((s, j) => j === setIdx ? { ...s, ...valuePatch } : s);
+      const next = { ...e, sets: newSets };
+      if (justBecameComplete) next.completedAt = new Date().toISOString();
+      else if (justBecameIncomplete) next.completedAt = null;
+      return next;
+    }));
+    
+    if (justBecameComplete) {
+      // Show the gold celebration for ~1.6s before letting auto-collapse happen
+      setCelebrating(prev => {
+        const next = new Set(prev);
+        next.add(exIdx);
+        return next;
+      });
+      // Distinct haptic for "exercise done" — a small pulse pattern
+      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      setTimeout(() => {
+        setCelebrating(prev => {
+          const next = new Set(prev);
+          next.delete(exIdx);
+          return next;
+        });
+      }, 1600);
+    }
+    
     if (willBeDone) {
       const baseEx = day.exercises.find(e => e.id === log[exIdx].exerciseId);
       const rest = log[exIdx].prescription?.rest ?? baseEx?.rest ?? 90;
       if (rest > 0) {
         setTimer({ startedAt: Date.now(), endsAt: Date.now() + rest * 1000, total: rest });
-        if (navigator.vibrate) navigator.vibrate(40);
+        if (!justBecameComplete && navigator.vibrate) navigator.vibrate(40);
       }
     }
   };
@@ -3305,8 +3518,6 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
   };
   
   const completeWorkout = () => {
-    if (!confirm('Complete this workout? A backup will be downloaded automatically.')) return;
-    
     // Build summary
     let totalSets = 0, completedSets = 0, totalVolume = 0;
     const prList = [];
@@ -3634,19 +3845,20 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
           </div>
         )}
         
-        {/* Quick jump bar — one pill per exercise */}
+        {/* Quick jump bar — pills are reordered: completed (in order of completion) first, then incomplete */}
         <div className="jump-bar">
-          {log.map((ex, i) => {
-            const st = exerciseStatuses[i];
-            const isNext = i === upNextIdx;
+          {jumpBarOrder.map((origIdx) => {
+            const ex = log[origIdx];
+            const st = exerciseStatuses[origIdx];
+            const isNext = origIdx === upNextIdx;
             return (
               <button
-                key={i}
+                key={origIdx}
                 className={`jump-pill jump-${st.status} ${isNext ? 'is-next' : ''}`}
-                onClick={() => scrollToExercise(i)}
+                onClick={() => scrollToExercise(origIdx)}
                 aria-label={`Jump to ${ex.name} (${st.doneSets}/${st.totalSets} sets done)`}
               >
-                <span className="jump-pill-num">{i + 1}</span>
+                <span className="jump-pill-num">{origIdx + 1}</span>
                 <span className="jump-pill-dot"></span>
               </button>
             );
@@ -3681,7 +3893,9 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
           const status = exerciseStatuses[exIdx];
           const isNext = exIdx === upNextIdx;
           const expanded = isExpanded(exIdx);
-          const isCompleteCollapsed = status.status === 'complete' && !expanded;
+          const isCelebrating = celebrating.has(exIdx);
+          // Defer collapse while celebrating — gold treatment shows for the duration of the celebration
+          const isCompleteCollapsed = status.status === 'complete' && !expanded && !isCelebrating;
           
           // Top-set for collapsed summary line
           const topSet = isCompleteCollapsed
@@ -3697,7 +3911,7 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
             <div
               key={exIdx}
               ref={(el) => { if (el) exerciseRefs.current[exIdx] = el; }}
-              className={`exercise-block ${wasSwapped ? 'swapped' : ''} ${hasPR ? 'has-pr' : ''} status-${status.status} ${isNext ? 'is-next' : ''} ${isCompleteCollapsed ? 'collapsed' : ''}`}
+              className={`exercise-block ${wasSwapped ? 'swapped' : ''} ${hasPR ? 'has-pr' : ''} ex-${status.status} ${isNext ? 'is-next' : ''} ${isCompleteCollapsed ? 'collapsed' : ''} ${isCelebrating ? 'celebrating' : ''}`}
             >
               {isCompleteCollapsed ? (
                 /* Collapsed view: one-line summary, tap to expand */
@@ -3741,7 +3955,10 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
                     {logEx.sets.map((set, setIdx) => {
                       const prevSet = prevExLog?.sets?.[setIdx];
                       const isPRSet = prMap[exIdx]?.[setIdx];
-                      const showGhostWeight = !set.weight && prevSet?.weight;
+                      // Ghost priority: (1) previous week's same-set value, (2) current session's set-1 weight (for sets 2+)
+                      const set1Weight = setIdx > 0 ? logEx.sets[0]?.weight : null;
+                      const ghostWeightSource = prevSet?.weight || set1Weight;
+                      const showGhostWeight = !set.weight && ghostWeightSource;
                       const showGhostReps = !set.reps && prevSet?.reps;
                       return (
                         <div key={setIdx} className="set-row">
@@ -3749,9 +3966,9 @@ function SessionView({ program, week, dayIdx, onBack, onUpdate, onComplete, show
                           <input
                             className={`set-input ${set.done ? 'done' : ''} ${showGhostWeight ? 'ghost' : ''}`}
                             type="number" inputMode="decimal" step="0.5"
-                            placeholder={prevSet?.weight || '—'}
-                            value={showGhostWeight ? prevSet.weight : set.weight}
-                            onFocus={(e) => { if (showGhostWeight) commitGhost(exIdx, setIdx, 'weight', prevSet.weight); }}
+                            placeholder={ghostWeightSource || '—'}
+                            value={showGhostWeight ? ghostWeightSource : set.weight}
+                            onFocus={(e) => { if (showGhostWeight) commitGhost(exIdx, setIdx, 'weight', ghostWeightSource); }}
                             onChange={e => updateSet(exIdx, setIdx, { weight: e.target.value })}
                           />
                           <input
@@ -4253,31 +4470,48 @@ function PastSessionView({ program, week, dayIdx, onBack, onReopen }) {
         
         <div style={{ marginTop: 24 }}>
           <div className="form-label">Exercise Log</div>
-          {session.log.map((logEx, exIdx) => {
-            const completedSets = logEx.sets.filter(s => s.done);
-            return (
-              <div key={exIdx} className="past-exercise">
-                <div className="past-exercise-name">
-                  {logEx.name}
-                  {prMap[exIdx] && <span className="pr-badge">PR</span>}
-                </div>
-                {completedSets.length > 0 ? (
-                  <div className="past-sets-list">
-                    {completedSets.map((s, i) => (
-                      <span key={i} className="past-set">
-                        {s.weight}×{s.reps}{s.rpe ? ` @${s.rpe}` : ''}
-                      </span>
-                    ))}
+          {(() => {
+            // Compute completion order rank: sort exercises with completedAt asc, then index = rank
+            const ranked = session.log
+              .map((ex, i) => ({ exIdx: i, completedAt: ex.completedAt }))
+              .filter(x => x.completedAt)
+              .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+            const rankByIdx = {};
+            ranked.forEach((r, rank) => { rankByIdx[r.exIdx] = rank + 1; });
+            const ordinal = (n) => {
+              if (n % 10 === 1 && n % 100 !== 11) return n + 'st';
+              if (n % 10 === 2 && n % 100 !== 12) return n + 'nd';
+              if (n % 10 === 3 && n % 100 !== 13) return n + 'rd';
+              return n + 'th';
+            };
+            return session.log.map((logEx, exIdx) => {
+              const completedSets = logEx.sets.filter(s => s.done);
+              const rank = rankByIdx[exIdx];
+              return (
+                <div key={exIdx} className="past-exercise">
+                  <div className="past-exercise-name">
+                    {rank && <span className="past-rank">{ordinal(rank)}</span>}
+                    {logEx.name}
+                    {prMap[exIdx] && <span className="pr-badge">PR</span>}
                   </div>
-                ) : (
-                  <div className="past-no-sets">— no sets logged —</div>
-                )}
-                {logEx.notes && (
-                  <div className="past-notes">"{logEx.notes}"</div>
-                )}
-              </div>
-            );
-          })}
+                  {completedSets.length > 0 ? (
+                    <div className="past-sets-list">
+                      {completedSets.map((s, i) => (
+                        <span key={i} className="past-set">
+                          {s.weight}×{s.reps}{s.rpe ? ` @${s.rpe}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="past-no-sets">— no sets logged —</div>
+                  )}
+                  {logEx.notes && (
+                    <div className="past-notes">"{logEx.notes}"</div>
+                  )}
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
     </div>
